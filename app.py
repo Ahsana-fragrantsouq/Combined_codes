@@ -1269,7 +1269,7 @@ sync_lock = threading.Lock()
 # NOTE: renamed with ty_ prefix to avoid conflict with Section 2 helpers ──────
 
 def ty_airtable_search(table_id, formula):
-    print(f"🔍 Airtable search | table={table_id} | formula={formula}")
+    print(f"🔍 Airtable search | table={table_id} | formula={formula}, flush=True")
     r = requests.get(
         f"{AIRTABLE_URL}/{BASE_ID}/{table_id}",
         headers=AIRTABLE_HEADERS,
@@ -1298,7 +1298,7 @@ def ty_airtable_create(table_id, fields):
     return record["id"]
 
 def ty_airtable_update(table_id, record_id, fields):
-    print(f"✏️ Updating Airtable record {record_id} in table={table_id}")
+    print(f"✏️ Updating Airtable record {record_id} in table={table_id}, flush=True")
     print("🧾 Update payload:", fields)
     r = requests.patch(
         f"{AIRTABLE_URL}/{BASE_ID}/{table_id}/{record_id}",
@@ -1309,7 +1309,7 @@ def ty_airtable_update(table_id, record_id, fields):
     if r.status_code >= 400:
         print("❌ Airtable update error:", r.text)
         r.raise_for_status()
-    print("✅ Airtable record updated")
+    print("✅ Airtable record updated, flush=True")
 
 
 # ── Status mappers (Section 3) ─────────────────────────────────────────────────
@@ -1403,7 +1403,7 @@ def ty_get_or_create_order(order_id, order_number, customer_id, order_date, pay,
         ty_airtable_update(ORDERS_TABLE_ID, existing_id, update_fields)
         return existing_id
 
-    print(f"📋 Creating new order in Orders table")
+    print(f"📋 Creating new order in Orders table, flush=True")
     create_fields = {
         "Order ID": order_id,
         "Customer": [customer_id],
@@ -1415,7 +1415,7 @@ def ty_get_or_create_order(order_id, order_number, customer_id, order_date, pay,
     if ship_by:
         create_fields["Ship By"] = ship_by
     new_id = ty_airtable_create(ORDERS_TABLE_ID, create_fields)
-    print(f"📋 Order created: {new_id}")
+    print(f"📋 Order created: {new_id}, flush=True")
     return new_id
 
 
