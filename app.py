@@ -1690,8 +1690,6 @@ def find_customer(phone: str, email: str) -> dict | None:
         stripped = phone.lstrip("+")
         if stripped != phone:
             parts.append(f"{{Contact Number}}='{stripped}'")
-        if len(phone) >= 9:
-            parts.append(f"RIGHT(SUBSTITUTE({{Contact Number}},' ',''),9)='{phone[-9:]}'")
     if email:
         parts.append(f"LOWER({{Mail id}})='{email.lower()}'")
 
