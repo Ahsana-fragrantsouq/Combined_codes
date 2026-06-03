@@ -14,8 +14,6 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests_aws4auth import AWS4Auth
-import sys
-sys.stdout.reconfigure(line_buffering=True)
 
 load_dotenv()
 requests.adapters.DEFAULT_RETRIES = 3
@@ -59,16 +57,16 @@ def shopify(path):
     return f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}{path}"
 
 # ── Startup banner ─────────────────────────────────────────────────────────────
-print("=" * 60)
-print("  DELIVERY TRACKER — STARTING")
-print(f"  Store : {SHOPIFY_STORE}")
-print(f"  Token : {'SET ✓' if SHOPIFY_ACCESS_TOKEN else 'MISSING ✗'}")
-print("=" * 60)
+print("=" * 60, flush=True)
+print("  DELIVERY TRACKER — STARTING", flush=True)
+print(f"  Store : {SHOPIFY_STORE}", flush=True)
+print(f"  Token : {'SET ✓' if SHOPIFY_ACCESS_TOKEN else 'MISSING ✗'}", flush=True)
+print("=" * 60, flush=True)
 
 
 # ── 1. Fetch only orders that need delivery check ─────────────────────────────
 def get_orders_needing_delivery_check():
-    print("\n[SHOPIFY] Fetching orders where Delivery Status = Tracking added...")
+    print("\n[SHOPIFY] Fetching orders where Delivery Status = Tracking added...", flush=True)
     all_orders = []
     url    = shopify("/orders.json")
     params = {
@@ -80,12 +78,12 @@ def get_orders_needing_delivery_check():
     page = 0
     while url:
         page += 1
-        print(f"  → Page {page}: GET {url}")
+        print(f"  → Page {page}: GET {url}", flush=True)
         r = requests.get(url, headers=HEADERS, params=params, timeout=30)
         r.raise_for_status()
 
         orders = r.json().get("orders", [])
-        print(f"    Fetched {len(orders)} orders from Shopify")
+        print(f"    Fetched {len(orders)} orders from Shopify", flush=True)
 
         for order in orders:
             needs_check = any(
@@ -97,7 +95,7 @@ def get_orders_needing_delivery_check():
             if needs_check:
                 all_orders.append(order)
 
-        print(f"    {len(all_orders)} orders need delivery check so far")
+        print(f"    {len(all_orders)} orders need delivery check so far", flush=True)
 
         link   = r.headers.get("Link", "")
         url    = None
@@ -108,7 +106,7 @@ def get_orders_needing_delivery_check():
                     url = part.split(";")[0].strip().strip("<>")
                     break
 
-    print(f"[SHOPIFY] Orders needing delivery check: {len(all_orders)}\n")
+    print(f"[SHOPIFY] Orders needing delivery check: {len(all_orders)}\n", flush=True)
     return all_orders
 
 
@@ -133,7 +131,7 @@ def mark_delivered(order_id, fulfillment_id):
 
 def check_courier(tracking_number: str) -> dict:
     TRACKING_URL = "https://professionalcourier.ae/tracking"
-    print(f"    [COURIER] Checking AWB {tracking_number}...")
+    print(f"    [COURIER] Checking AWB {tracking_number}...", flush=True)
 
     session = requests.Session()
     session.headers.update({
@@ -153,7 +151,7 @@ def check_courier(tracking_number: str) -> dict:
         print(f"    [COURIER] GET OK — {len(get_resp.text)} chars | "
               f"cookies: {list(session.cookies.keys())}")
     except Exception as e:
-        print(f"    [COURIER] ✗ GET failed: {e}")
+        print(f"    [COURIER] ✗ GET failed: {e}", flush=True)
         return {"is_delivered": False, "status": "unreachable", "error": str(e)}
 
     # ── Step 2: POST with correct field name "trackno" ────────────────────────
@@ -169,9 +167,9 @@ def check_courier(tracking_number: str) -> dict:
             timeout=20,
         )
         resp.raise_for_status()
-        print(f"    [COURIER] POST {resp.status_code} — {len(resp.text)} chars")
+        print(f"    [COURIER] POST {resp.status_code} — {len(resp.text)} chars", flush=True)
     except Exception as e:
-        print(f"    [COURIER] ✗ POST failed: {e}")
+        print(f"    [COURIER] ✗ POST failed: {e}", flush=True)
         return {"is_delivered": False, "status": "post_failed", "error": str(e)}
 
     result_soup = BeautifulSoup(resp.text, "html.parser")
@@ -179,19 +177,19 @@ def check_courier(tracking_number: str) -> dict:
 
     # ── Step 3: Verify tracking number appears in result ─────────────────────
     if tracking_number not in page_text:
-        print(f"    [COURIER] ✗ Tracking number not found in result")
+        print(f"    [COURIER] ✗ Tracking number not found in result", flush=True)
         # Print snippet for debugging
-        print(f"    [COURIER] Page snippet: {page_text[:200]}")
+        print(f"    [COURIER] Page snippet: {page_text[:200]}", flush=True)
         return {"is_delivered": False, "status": "not_found"}
 
-    print(f"    [COURIER] ✓ Tracking number found in result")
+    print(f"    [COURIER] ✓ Tracking number found in result", flush=True)
 
     # ── Step 4: Find "Current Status" column in summary table ─────────────────
     # Table structure: From | To | Current Status | Current Activity
     status_text = ""
     for table in result_soup.find_all("table"):
         headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-        print(f"    [COURIER] Table headers: {headers}")
+        print(f"    [COURIER] Table headers: {headers}", flush=True)
         if "current status" in headers:
             try:
                 si   = headers.index("current status")
@@ -200,9 +198,9 @@ def check_courier(tracking_number: str) -> dict:
                     cells = rows[1].find_all("td")
                     if cells and si < len(cells):
                         status_text = cells[si].get_text(strip=True)
-                        print(f"    [COURIER] Current Status: '{status_text}'")
+                        print(f"    [COURIER] Current Status: '{status_text}'", flush=True)
             except (ValueError, IndexError) as e:
-                print(f"    [COURIER] Table parse error: {e}")
+                print(f"    [COURIER] Table parse error: {e}", flush=True)
             break
 
     # ── Step 5: Fallback — scan text near tracking number only ────────────────
@@ -214,7 +212,7 @@ def check_courier(tracking_number: str) -> dict:
                       "dispatched", "picked up", "processing", "pending"]:
                 if k in nearby:
                     status_text = k.title()
-                    print(f"    [COURIER] Fallback status: '{status_text}'")
+                    print(f"    [COURIER] Fallback status: '{status_text}'", flush=True)
                     break
 
     # ── Step 6: Exact match only — never whole-page match ────────────────────
@@ -222,16 +220,16 @@ def check_courier(tracking_number: str) -> dict:
         "delivered", "delivery complete", "successfully delivered"
     )
 
-    print(f"    [COURIER] Final → status='{status_text}' is_delivered={is_delivered}")
+    print(f"    [COURIER] Final → status='{status_text}' is_delivered={is_delivered}", flush=True)
     return {"is_delivered": is_delivered, "status": status_text or "unknown"}
 
 
 # ── Main logic ────────────────────────────────────────────────────────────────
 
 def run_tracking():
-    print("\n" + "=" * 60)
-    print("  RUN TRACKING STARTED")
-    print("=" * 60)
+    print("\n" + "=" * 60, flush=True)
+    print("  RUN TRACKING STARTED", flush=True)
+    print("=" * 60, flush=True)
 
     summary = {
         "checked": 0, "updated": 0,
@@ -242,11 +240,11 @@ def run_tracking():
     try:
         orders = get_orders_needing_delivery_check()
     except Exception as e:
-        print(f"[ERROR] Failed to fetch orders: {e}")
+        print(f"[ERROR] Failed to fetch orders: {e}", flush=True)
         summary["errors"] += 1
         return summary
 
-    print(f"[PROCESSING] {len(orders)} orders to check...\n")
+    print(f"[PROCESSING] {len(orders)} orders to check...\n", flush=True)
 
     for order in orders:
         order_number = order.get("order_number") or order.get("name")
@@ -271,7 +269,7 @@ def run_tracking():
 
             if shipment_status == "delivered":
                 msg = "skip — already delivered"
-                print(f"  → {msg}")
+                print(f"  → {msg}", flush=True)
                 detail["action"] = msg
                 summary["skipped"] += 1
                 summary["details"].append(detail)
@@ -279,7 +277,7 @@ def run_tracking():
 
             if tracking_company.lower() != "other":
                 msg = f"skip — carrier is '{tracking_company}' not 'Other'"
-                print(f"  → {msg}")
+                print(f"  → {msg}", flush=True)
                 detail["action"] = msg
                 summary["skipped"] += 1
                 summary["details"].append(detail)
@@ -287,20 +285,20 @@ def run_tracking():
 
             if not tracking_number:
                 msg = "skip — no tracking number"
-                print(f"  → {msg}")
+                print(f"  → {msg}", flush=True)
                 detail["action"] = msg
                 summary["skipped"] += 1
                 summary["details"].append(detail)
                 continue
 
-            print(f"  → ✓ Conditions met — checking professionalcourier.ae...")
+            print(f"  → ✓ Conditions met — checking professionalcourier.ae...", flush=True)
             summary["checked"] += 1
 
             courier = check_courier(tracking_number)
 
             if courier.get("error"):
                 msg = f"error: {courier['error']}"
-                print(f"  → ✗ {msg}")
+                print(f"  → ✗ {msg}", flush=True)
                 detail["action"] = msg
                 summary["errors"] += 1
                 summary["details"].append(detail)
@@ -310,28 +308,28 @@ def run_tracking():
                 try:
                     mark_delivered(order_id, ful_id)
                     msg = "✅ MARKED DELIVERED in Shopify"
-                    print(f"  → {msg}")
+                    print(f"  → {msg}", flush=True)
                     detail["action"] = msg
                     summary["updated"] += 1
                 except Exception as e:
                     msg = f"Shopify update failed: {e}"
-                    print(f"  → ✗ {msg}")
+                    print(f"  → ✗ {msg}", flush=True)
                     detail["action"] = msg
                     summary["errors"] += 1
             else:
                 msg = f"not delivered yet (courier: {courier['status']})"
-                print(f"  → {msg}")
+                print(f"  → {msg}", flush=True)
                 detail["action"] = msg
 
             summary["details"].append(detail)
 
-    print("\n" + "=" * 60)
-    print(f"  RUN COMPLETE")
-    print(f"  Checked : {summary['checked']}")
-    print(f"  Updated : {summary['updated']}")
-    print(f"  Skipped : {summary['skipped']}")
-    print(f"  Errors  : {summary['errors']}")
-    print("=" * 60 + "\n")
+    print("\n" + "=" * 60, flush=True)
+    print(f"  RUN COMPLETE", flush=True)
+    print(f"  Checked : {summary['checked']}", flush=True)
+    print(f"  Updated : {summary['updated']}", flush=True)
+    print(f"  Skipped : {summary['skipped']}", flush=True)
+    print(f"  Errors  : {summary['errors']}", flush=True)
+    print("=" * 60 + "\n", flush=True)
 
     return summary
 
@@ -346,7 +344,7 @@ def check_tracking():
     Tracking runs in background — check Render logs for results.
     """
     import threading
-    print(f"\n>>> /check-tracking triggered — starting background job")
+    print(f"\n>>> /check-tracking triggered — starting background job", flush=True)
     thread = threading.Thread(target=run_tracking, daemon=True)
     thread.start()
     return jsonify({"ok": True, "message": "Tracking job started in background"}), 200
@@ -356,7 +354,7 @@ def check_tracking():
 # NOTE: renamed from /health to /delivery/health to avoid conflict with Section 4
 def delivery_health():
     """Ping this every 14 min from UptimeRobot to keep Render awake."""
-    print(">>> GET /delivery/health — OK")
+    print(">>> GET /delivery/health — OK", flush=True)
     return jsonify({"status": "ok", "store": SHOPIFY_STORE}), 200
 
 
