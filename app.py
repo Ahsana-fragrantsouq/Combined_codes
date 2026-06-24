@@ -50,9 +50,6 @@ CLIENT_ID     = os.getenv("SHOPIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SHOPIFY_CLIENT_SECRET")
 REDIRECT_URI  = os.getenv("SHOPIFY_REDIRECT_URI")  # e.g. https://your-render-url.com/auth/callback
 
-MSG91_AUTHKEY         = os.getenv("MSG91_AUTHKEY")
-MSG91_WHATSAPP_NUMBER = os.getenv("MSG91_WHATSAPP_NUMBER", "971541836101")
-
 HEADERS = {
     "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
     "Content-Type": "application/json",
@@ -67,61 +64,6 @@ print("  DELIVERY TRACKER — STARTING", flush=True)
 print(f"  Store : {SHOPIFY_STORE}", flush=True)
 print(f"  Token : {'SET ✓' if SHOPIFY_ACCESS_TOKEN else 'MISSING ✗'}", flush=True)
 print("=" * 60, flush=True)
-
-
-# ── WhatsApp review request ───────────────────────────────────────────────────
-
-def clean_phone_number(phone):
-    if not phone:
-        return None
-    phone = ''.join(filter(str.isdigit, phone))
-    if phone.startswith('00'):
-        phone = phone[2:]
-    return phone if len(phone) >= 10 else None
-
-def send_review_request_whatsapp(customer_phone, customer_name):
-    clean_phone = clean_phone_number(customer_phone)
-    if not clean_phone:
-        print(f"    [WHATSAPP] ✗ Invalid phone number: {customer_phone}", flush=True)
-        return
-    url = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/"
-    headers = {
-        "Content-Type": "application/json",
-        "authkey": MSG91_AUTHKEY
-    }
-    payload = {
-        "integrated_number": MSG91_WHATSAPP_NUMBER,
-        "content_type": "template",
-        "payload": {
-            "messaging_product": "whatsapp",
-            "type": "template",
-            "template": {
-                "name": "delivery_review_request",
-                "language": {
-                    "code": "en",
-                    "policy": "deterministic"
-                },
-                "namespace": None,
-                "to_and_components": [
-                    {
-                        "to": [clean_phone],
-                        "components": {
-                            "body_1": {
-                                "type": "text",
-                                "value": customer_name or "there"
-                            }
-                        }
-                    }
-                ]
-            }
-        }
-    }
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
-        result = response.json()
-        print(f"    [WHATSAPP] ✅ Review request sent to {clean_phone} ({customer_name}): {result}", flush=True)
-    except Exception as e:
-        print(f"    [WHATSAPP] ✗ Failed to send to {clean_phone}: {e}", flush=True)
 
 
 # ── 1. Fetch only orders that need delivery check ─────────────────────────────
@@ -371,18 +313,6 @@ def run_tracking():
                     print(f"  → {msg}", flush=True)
                     detail["action"] = msg
                     summary["updated"] += 1
-
-                    # ── Send WhatsApp review request ──────────────────────────
-                    customer       = order.get("customer", {})
-                    customer_name  = customer.get("first_name") or customer.get("name") or "there"
-                    customer_phone = (
-                        order.get("phone")
-                        or customer.get("phone")
-                        or order.get("shipping_address", {}).get("phone")
-                    )
-                    send_review_request_whatsapp(customer_phone, customer_name)
-                    # ─────────────────────────────────────────────────────────
-
                 except Exception as e:
                     msg = f"Shopify update failed: {e}"
                     print(f"  → ✗ {msg}", flush=True)
@@ -420,48 +350,6 @@ def check_tracking():
     thread = threading.Thread(target=run_tracking, daemon=True)
     thread.start()
     return jsonify({"ok": True, "message": "Tracking job started in background"}), 200
-
-
-@app.route("/webhook/fulfillment-update", methods=["POST"])
-def fulfillment_update_webhook():
-    """
-    Called instantly by Shopify when a fulfillment event is created.
-    Sends WhatsApp review request when status = delivered.
-    """
-    data = request.get_json(silent=True) or {}
-
-    status = data.get("status", "")
-    print(f"\n>>> /webhook/fulfillment-update — status: {status}", flush=True)
-
-    if status != "delivered":
-        return jsonify({"ok": True, "skipped": "not delivered"}), 200
-
-    order_id = data.get("order_id")
-    if not order_id:
-        return jsonify({"ok": True, "skipped": "no order_id"}), 200
-
-    try:
-        r = requests.get(shopify(f"/orders/{order_id}.json"), headers=HEADERS, timeout=15)
-        r.raise_for_status()
-        order = r.json().get("order", {})
-    except Exception as e:
-        print(f"[WEBHOOK] Failed to fetch order {order_id}: {e}", flush=True)
-        return jsonify({"ok": False, "error": str(e)}), 200
-
-    customer       = order.get("customer", {})
-    customer_name  = customer.get("first_name") or customer.get("name") or "there"
-    customer_phone = (
-        order.get("phone")
-        or customer.get("phone")
-        or order.get("shipping_address", {}).get("phone")
-    )
-
-    order_name = order.get("name", order_id)
-    print(f"[WEBHOOK] Delivered: {order_name} | Customer: {customer_name} | Phone: {customer_phone}", flush=True)
-
-    send_review_request_whatsapp(customer_phone, customer_name)
-
-    return jsonify({"ok": True}), 200
 
 
 @app.route("/delivery/health", methods=["GET"])
@@ -526,14 +414,6 @@ def auth_callback():
         "message": "Copy this token and update SHOPIFY_TOKEN in your airtable service on Render!"
     })
 
-@app.route("/test-whatsapp", methods=["GET"])
-def test_whatsapp():
-    phone = request.args.get("phone", "")
-    name  = request.args.get("name", "Mohammed")
-    if not phone:
-        return jsonify({"error": "Provide ?phone=971XXXXXXXXX"}), 400
-    send_review_request_whatsapp(phone, name)
-    return jsonify({"ok": True, "sent_to": phone}), 200
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — AMAZON → AIRTABLE SYNC
