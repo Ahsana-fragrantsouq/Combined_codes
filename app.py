@@ -526,6 +526,14 @@ def auth_callback():
         "message": "Copy this token and update SHOPIFY_TOKEN in your airtable service on Render!"
     })
 
+@app.route("/test-whatsapp", methods=["GET"])
+def test_whatsapp():
+    phone = request.args.get("phone", "")
+    name  = request.args.get("name", "Mohammed")
+    if not phone:
+        return jsonify({"error": "Provide ?phone=971XXXXXXXXX"}), 400
+    send_review_request_whatsapp(phone, name)
+    return jsonify({"ok": True, "sent_to": phone}), 200
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — AMAZON → AIRTABLE SYNC
