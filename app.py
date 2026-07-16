@@ -2384,7 +2384,7 @@ def session_report_run_date(date_str):
 
 # ── Scheduler (Section 5) ──────────────────────────────────────────────────────
 session_report_scheduler = BackgroundScheduler(timezone=IST)
-session_report_scheduler.add_job(run_session_report_job, "cron", hour=18, minute=42)
+session_report_scheduler.add_job(run_session_report_job, "cron", hour=17, minute=0)
 session_report_scheduler.start()
 print(f"[startup] Session report scheduler started. Job will run daily at 17:00 IST.", flush=True)
 print(f"[startup] SESSION REPORT SHOPIFY_STORE     : {SHOPIFY_STORE}", flush=True)
