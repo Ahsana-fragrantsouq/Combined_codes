@@ -6,3 +6,4 @@ python-dotenv
 requests-aws4auth
 openpyxl
 APScheduler
+pytz
