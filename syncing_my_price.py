@@ -14,7 +14,7 @@ from flask import request, jsonify
 import requests
 
 from shared import app
-from delivery_tracker import SHOPIFY_STORE
+from delivery_tracker import SHOPIFY_STORE, CLIENT_ID, CLIENT_SECRET
 
 # NOTE — collisions resolved while merging this section in:
 #
@@ -48,8 +48,20 @@ from delivery_tracker import SHOPIFY_STORE
 
 PRICE_SYNC_SHOP         = os.getenv("SHOPIFY_SHOP") or SHOPIFY_STORE
 PRICE_SYNC_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
-PRICE_SYNC_CLIENT_ID     = os.getenv("PRICE_SYNC_CLIENT_ID")
-PRICE_SYNC_CLIENT_SECRET = os.getenv("PRICE_SYNC_CLIENT_SECRET")
+PRICE_SYNC_CLIENT_ID     = os.getenv("PRICE_SYNC_CLIENT_ID") or CLIENT_ID
+PRICE_SYNC_CLIENT_SECRET = os.getenv("PRICE_SYNC_CLIENT_SECRET") or CLIENT_SECRET
+# NOTE: falls back to the shared SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET (same
+# ones Section 1 uses) if PRICE_SYNC_CLIENT_ID / PRICE_SYNC_CLIENT_SECRET aren't
+# set separately. IMPORTANT — this fallback only works correctly if whichever
+# Shopify app SHOPIFY_CLIENT_ID points to actually has product/inventory write
+# scopes. Testing earlier showed the original Section 1 app (airtable-sync-4,
+# client id 3b558a7f...) only carries read_analytics/read_orders/read_reports —
+# no product access — while the reinstalled "session in slack" app (client id
+# 68607b4b...) has the broader scopes this section needs. If SHOPIFY_CLIENT_ID
+# still points at the narrow-scope app, this will fail again with a token that
+# lacks product/inventory permissions (a different error than "app not found",
+# but still broken) — set PRICE_SYNC_CLIENT_ID/PRICE_SYNC_CLIENT_SECRET
+# explicitly to override if so.
 # NOTE: intentionally NOT reading the shared "SHOPIFY_API_VERSION" env var here.
 # Combined_codes already has SHOPIFY_API_VERSION=2024-04 set for Section 1, and
 # since env vars are shared process-wide, Section 8 would have silently received
@@ -81,9 +93,16 @@ def get_shopify_access_token():
     }
 
     res = requests.post(url, json=payload)
-    print("🔁 Token raw response:", res.text, flush=True)
+    print("🔁 Token raw response:", res.text[:500], flush=True)
 
-    data = res.json()
+    try:
+        data = res.json()
+    except ValueError:
+        raise Exception(
+            f"❌ Shopify token endpoint returned non-JSON (status {res.status_code}). "
+            f"This usually means PRICE_SYNC_CLIENT_ID/PRICE_SYNC_CLIENT_SECRET are wrong "
+            f"or the app no longer exists. First 300 chars: {res.text[:300]!r}"
+        )
     if not data.get("access_token"):
         raise Exception("❌ Token failed")
 
