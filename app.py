@@ -3467,16 +3467,26 @@ def shopify_integration_health():
 # ══════════════════════════════════════════════════════════════════════════════
 # NOTE — collisions resolved while merging this section in:
 #
-# 1. CLIENT_ID / CLIENT_SECRET: this script read os.getenv("SHOPIFY_CLIENT_ID")
-#    and os.getenv("SHOPIFY_CLIENT_SECRET") — EXACTLY the same env vars Section 1
-#    already reads into globals of the same name (CLIENT_ID / CLIENT_SECRET).
-#    Reused as-is rather than redeclaring identical assignments.
+# 1. CORRECTED: originally this section reused Section 1's CLIENT_ID /
+#    CLIENT_SECRET globals on the assumption they held the same value (since
+#    both scripts read from env vars of the same name: SHOPIFY_CLIENT_ID /
+#    SHOPIFY_CLIENT_SECRET). That assumption was WRONG — each old standalone
+#    Render service had its own independently-configured values for those
+#    names. Testing showed the token minted via Section 1's credentials only
+#    carries read_analytics/read_orders/read_reports scope — no product or
+#    inventory access — which crashed the GraphQL calls below. Section 8 now
+#    uses its own dedicated PRICE_SYNC_CLIENT_ID / PRICE_SYNC_CLIENT_SECRET env
+#    vars so it authenticates as whichever Shopify custom app actually has
+#    product write access, independent of Section 1's app.
 #
 # 2. API_VERSION: this script also defined a global named API_VERSION, but with
 #    a DIFFERENT default ("2024-07") than Section 1's API_VERSION ("2024-04"),
 #    which Section 1 and Section 7 both rely on. Redeclaring it here would have
 #    silently changed the Shopify API version used elsewhere in the file. Kept
-#    as a separate PRICE_SYNC_API_VERSION global (same env var, own default).
+#    as a separate PRICE_SYNC_API_VERSION global, with its OWN env var
+#    (PRICE_SYNC_SHOPIFY_API_VERSION) after discovering the shared
+#    SHOPIFY_API_VERSION var was already set to 2024-04 on this service, which
+#    would have silently overridden Section 8's needed 2024-07 default too.
 #
 # 3. SHOP: reuses the existing SHOPIFY_STORE global (same full-domain value)
 #    instead of introducing a third differently-named "shop domain" variable,
@@ -3487,6 +3497,8 @@ def shopify_integration_health():
 
 PRICE_SYNC_SHOP         = os.getenv("SHOPIFY_SHOP") or SHOPIFY_STORE
 PRICE_SYNC_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+PRICE_SYNC_CLIENT_ID     = os.getenv("PRICE_SYNC_CLIENT_ID")
+PRICE_SYNC_CLIENT_SECRET = os.getenv("PRICE_SYNC_CLIENT_SECRET")
 # NOTE: intentionally NOT reading the shared "SHOPIFY_API_VERSION" env var here.
 # Combined_codes already has SHOPIFY_API_VERSION=2024-04 set for Section 1, and
 # since env vars are shared process-wide, Section 8 would have silently received
@@ -3512,8 +3524,8 @@ def get_shopify_access_token():
     url = f"https://{PRICE_SYNC_SHOP}/admin/oauth/access_token"
 
     payload = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
+        "client_id": PRICE_SYNC_CLIENT_ID,
+        "client_secret": PRICE_SYNC_CLIENT_SECRET,
         "grant_type": "client_credentials"
     }
 
@@ -3564,7 +3576,14 @@ def shopify_graphql(query, variables=None):
         json={"query": query, "variables": variables},
     )
     resp.raise_for_status()
-    return resp.json()
+    result = resp.json()
+    if result.get("errors"):
+        print("❌ GraphQL errors:", result["errors"], flush=True)
+        raise RuntimeError(f"Shopify GraphQL error: {result['errors']}")
+    if result.get("data") is None:
+        print("❌ GraphQL returned no data:", result, flush=True)
+        raise RuntimeError(f"Shopify GraphQL returned no data: {result}")
+    return result
 
 # ---------- PRICE LIST CACHE (Section 8) ----------
 CACHED_PRICE_LISTS = None
