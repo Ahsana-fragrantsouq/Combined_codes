@@ -3487,7 +3487,12 @@ def shopify_integration_health():
 
 PRICE_SYNC_SHOP         = os.getenv("SHOPIFY_SHOP") or SHOPIFY_STORE
 PRICE_SYNC_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
-PRICE_SYNC_API_VERSION  = os.getenv("SHOPIFY_API_VERSION", "2024-07")
+# NOTE: intentionally NOT reading the shared "SHOPIFY_API_VERSION" env var here.
+# Combined_codes already has SHOPIFY_API_VERSION=2024-04 set for Section 1, and
+# since env vars are shared process-wide, Section 8 would have silently received
+# "2024-04" too instead of the "2024-07" it needs for catalogs/price-list/
+# metafieldsSet GraphQL support. Uses its own dedicated env var instead.
+PRICE_SYNC_API_VERSION  = os.getenv("PRICE_SYNC_SHOPIFY_API_VERSION", "2024-07")
 
 print("🚀 Section 8 — Syncing My Price starting...", flush=True)
 
