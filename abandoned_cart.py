@@ -9,9 +9,10 @@ import hashlib
 import base64
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import request, jsonify
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from shared import app
 from delivery_tracker import SHOPIFY_STORE
@@ -452,3 +453,43 @@ def sync_abandoned_checkouts():
 def health():
     print("[HEALTH] Health check", flush=True)
     return jsonify({"status": "ok", "service": "shopify-airtable-abandoned-cart"}), 200
+
+
+# ── Periodic safety-net re-sync (Section 4) ────────────────────────────────────
+# WHY THIS EXISTS: a checkout webhook can fire before the shopper has typed in
+# any contact info (e.g. Shopify's checkouts/create event fires the instant the
+# checkout session starts). When that happens, process_single_checkout()
+# correctly skips it — there's nothing to create a customer record from yet.
+# But that checkout is never looked at again unless something re-checks it
+# later, after the shopper has had a chance to fill in their email/phone
+# (or complete/abandon further). This periodic job re-runs the same pull-based
+# sync used by /sync/abandoned-checkouts, scoped to roughly the last 2 days,
+# so checkouts that gain contact info after their first webhook get picked up
+# on a later pass instead of being skipped forever.
+#
+# This does NOT replace fixing the underlying Shopify webhook subscription —
+# if only "checkouts/create" is subscribed (not "checkouts/update"), you'll
+# keep seeing a high skip rate on the *first* pass regardless. Check
+# Shopify Admin → Settings → Notifications → Webhooks (or your custom app's
+# webhook subscriptions) and confirm "checkouts/update" is included alongside
+# "checkouts/create" — that's what delivers the contact info once typed.
+# This scheduler is a complementary safety net, not a substitute for that check.
+
+def scheduled_abandoned_cart_resync():
+    if sync_state["running"]:
+        print("[SCHEDULED RESYNC] Skipped — a sync is already running", flush=True)
+        return
+    since_date = (datetime.utcnow() - timedelta(days=2)).strftime("%Y-%m-%d")
+    print(f"[SCHEDULED RESYNC] Starting periodic re-sync since {since_date}", flush=True)
+    thread = threading.Thread(
+        target=run_sync_in_background,
+        args=(None, since_date),
+        daemon=True,
+    )
+    thread.start()
+
+
+abandoned_cart_scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+abandoned_cart_scheduler.add_job(scheduled_abandoned_cart_resync, "interval", hours=3)
+abandoned_cart_scheduler.start()
+print("[startup] Abandoned cart safety-net re-sync scheduled every 3 hours (last 2 days window).", flush=True)
