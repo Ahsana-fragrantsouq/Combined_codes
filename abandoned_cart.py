@@ -261,6 +261,27 @@ def process_single_checkout(checkout: dict) -> dict:
 
     # STEP 3 — Create lead
     print("\n[STEP 3] Creating lead...", flush=True)
+    # NOTE: this duplicate check was missing here entirely. It previously only
+    # existed in run_sync_in_background() (the pull-based /sync/abandoned-checkouts
+    # path), NOT here in process_single_checkout() — which is what the real-time
+    # /webhook/abandoned-checkout route calls directly. Since Shopify's
+    # checkouts/update webhook fires repeatedly during a single checkout session
+    # (every field change: address, shipping option, payment attempt, etc.),
+    # every one of those firings was creating a brand new duplicate lead for the
+    # same customer with zero protection — this is what caused the same
+    # customer/SKU to appear 10+ times in the Lead table. Adding the same check
+    # used by the pull-sync path so both paths share identical dedup behavior.
+    if lead_exists_for_customer(customer_id):
+        print(f"[STEP 3] Lead already exists for customer {customer_id} — skipping duplicate creation", flush=True)
+        return {
+            "status":          "skipped",
+            "reason":          "duplicate lead — customer already has a lead",
+            "checkout_id":     checkout_id,
+            "customer_id":     customer_id,
+            "customer_action": customer_action,
+            "unmatched_skus":  unmatched_skus,
+        }
+
     lead = create_lead(customer_id, product_ids, abandoned_date)
     lead_id = lead.get("id")
     print(f"\n[DONE] customer_id={customer_id}  lead_id={lead_id}  products={len(product_ids)}  unmatched={unmatched_skus}", flush=True)
