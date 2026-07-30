@@ -36,19 +36,6 @@ TABLE_CUSTOMERS   = "Customers"
 TABLE_INVENTORIES = "French Inventories"
 TABLE_LEADS       = "Lead table"
 
-# NOTE: process_single_checkout() is called from TWO independent contexts that
-# can run at the same time in this process:
-#   1. The real-time webhook handler (main request thread, one at a time)
-#   2. The periodic resync's background thread (scheduled_abandoned_cart_resync)
-# Both paths have their own "does a lead already exist?" check, but that check
-# is a classic check-then-act race: if the resync thread and a live webhook
-# request both check for the SAME customer within milliseconds of each other,
-# both can see "no lead yet" and both proceed to create one — because neither
-# has finished WRITING its new lead before the other reads. This lock forces
-# the whole find/create-customer + dedupe-check + create-lead sequence to run
-# one caller at a time, closing that window entirely.
-_lead_creation_lock = threading.Lock()
-
 print("=" * 60, flush=True)
 print("[STARTUP] Shopify → Airtable Abandoned Cart Service", flush=True)
 print(f"[STARTUP] Airtable Base ID : {AIRTABLE_BASE_ID}", flush=True)
@@ -229,90 +216,63 @@ def process_single_checkout(checkout: dict) -> dict:
     for i, item in enumerate(line_items, 1):
         print(f"  [{i}] title={item.get('title')!r}  sku={item.get('sku')!r}  qty={item.get('quantity')}", flush=True)
 
-    # STEPS 1–3 run under a lock: the whole find/create-customer + dedupe-check
-    # + create-lead sequence must be atomic with respect to any other caller
-    # (the live webhook handler and the periodic resync's background thread
-    # both call this function and could otherwise race each other — see the
-    # _lead_creation_lock comment near the top of this file for why).
-    with _lead_creation_lock:
-        # STEP 1 — Find or create customer
-        print("\n[STEP 1] Customer lookup...", flush=True)
-        customer_record = find_customer(phone, email)
-        customer_action = "found"
-        if customer_record:
-            print(f"[STEP 1] Existing customer: {customer_record['id']}", flush=True)
+    # STEP 1 — Find or create customer
+    print("\n[STEP 1] Customer lookup...", flush=True)
+    customer_record = find_customer(phone, email)
+    customer_action = "found"
+    if customer_record:
+        print(f"[STEP 1] Existing customer: {customer_record['id']}", flush=True)
+    else:
+        print("[STEP 1] Not found — creating new customer", flush=True)
+        customer_record = create_customer(name, phone, email)
+        customer_action = "created"
+        print(f"[STEP 1] New customer: {customer_record['id']}", flush=True)
+    customer_id = customer_record["id"]
+
+    # STEP 2 — Match SKUs
+    print("\n[STEP 2] SKU matching...", flush=True)
+    product_ids: list[str] = []
+    unmatched_skus: list[str] = []
+    for item in line_items:
+        sku = (item.get("sku") or "").strip()
+        if not sku:
+            print(f"  [SKIP] '{item.get('title')}' has no SKU", flush=True)
+            continue
+        prod = cart_find_product_by_sku(sku)
+        if prod:
+            product_ids.append(prod["id"])
+            print(f"  [OK] {sku} -> {prod['id']}", flush=True)
         else:
-            print("[STEP 1] Not found — creating new customer", flush=True)
-            customer_record = create_customer(name, phone, email)
-            customer_action = "created"
-            print(f"[STEP 1] New customer: {customer_record['id']}", flush=True)
-        customer_id = customer_record["id"]
+            unmatched_skus.append(sku)
+            print(f"  [MISS] {sku} not found", flush=True)
+    print(f"[STEP 2] Matched={len(product_ids)}  Unmatched={unmatched_skus}", flush=True)
 
-        # STEP 2 — Match SKUs
-        print("\n[STEP 2] SKU matching...", flush=True)
-        product_ids: list[str] = []
-        unmatched_skus: list[str] = []
-        for item in line_items:
-            sku = (item.get("sku") or "").strip()
-            if not sku:
-                print(f"  [SKIP] '{item.get('title')}' has no SKU", flush=True)
-                continue
-            prod = cart_find_product_by_sku(sku)
-            if prod:
-                product_ids.append(prod["id"])
-                print(f"  [OK] {sku} -> {prod['id']}", flush=True)
-            else:
-                unmatched_skus.append(sku)
-                print(f"  [MISS] {sku} not found", flush=True)
-        print(f"[STEP 2] Matched={len(product_ids)}  Unmatched={unmatched_skus}", flush=True)
-
-        if not product_ids:
-            print("[STEP 2] No matched products — lead NOT created", flush=True)
-            return {
-                "status":         "skipped",
-                "reason":         "no matching SKUs",
-                "checkout_id":    checkout_id,
-                "customer_id":    customer_id,
-                "customer_action": customer_action,
-                "unmatched_skus": unmatched_skus,
-            }
-
-        # STEP 3 — Create lead
-        print("\n[STEP 3] Creating lead...", flush=True)
-        # NOTE: this duplicate check was missing here entirely. It previously only
-        # existed in run_sync_in_background() (the pull-based /sync/abandoned-checkouts
-        # path), NOT here in process_single_checkout() — which is what the real-time
-        # /webhook/abandoned-checkout route calls directly. Since Shopify's
-        # checkouts/update webhook fires repeatedly during a single checkout session
-        # (every field change: address, shipping option, payment attempt, etc.),
-        # every one of those firings was creating a brand new duplicate lead for the
-        # same customer with zero protection — this is what caused the same
-        # customer/SKU to appear 10+ times in the Lead table. Adding the same check
-        # used by the pull-sync path so both paths share identical dedup behavior.
-        if lead_exists_for_customer(customer_id):
-            print(f"[STEP 3] Lead already exists for customer {customer_id} — skipping duplicate creation", flush=True)
-            return {
-                "status":          "skipped",
-                "reason":          "duplicate lead — customer already has a lead",
-                "checkout_id":     checkout_id,
-                "customer_id":     customer_id,
-                "customer_action": customer_action,
-                "unmatched_skus":  unmatched_skus,
-            }
-
-        lead = create_lead(customer_id, product_ids, abandoned_date)
-        lead_id = lead.get("id")
-        print(f"\n[DONE] customer_id={customer_id}  lead_id={lead_id}  products={len(product_ids)}  unmatched={unmatched_skus}", flush=True)
-
+    if not product_ids:
+        print("[STEP 2] No matched products — lead NOT created", flush=True)
         return {
-            "status":          "success",
-            "checkout_id":     checkout_id,
-            "customer_id":     customer_id,
+            "status":         "skipped",
+            "reason":         "no matching SKUs",
+            "checkout_id":    checkout_id,
+            "customer_id":    customer_id,
             "customer_action": customer_action,
-            "lead_id":         lead_id,
-            "products_linked": len(product_ids),
-            "unmatched_skus":  unmatched_skus,
+            "unmatched_skus": unmatched_skus,
         }
+
+    # STEP 3 — Create lead
+    print("\n[STEP 3] Creating lead...", flush=True)
+    lead = create_lead(customer_id, product_ids, abandoned_date)
+    lead_id = lead.get("id")
+    print(f"\n[DONE] customer_id={customer_id}  lead_id={lead_id}  products={len(product_ids)}  unmatched={unmatched_skus}", flush=True)
+
+    return {
+        "status":          "success",
+        "checkout_id":     checkout_id,
+        "customer_id":     customer_id,
+        "customer_action": customer_action,
+        "lead_id":         lead_id,
+        "products_linked": len(product_ids),
+        "unmatched_skus":  unmatched_skus,
+    }
 
 
 # ── Webhook route (Section 4) ─────────────────────────────────────────────────
