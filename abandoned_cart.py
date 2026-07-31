@@ -260,6 +260,27 @@ def process_single_checkout(checkout: dict) -> dict:
 
     # STEP 3 — Create lead
     print("\n[STEP 3] Creating lead...", flush=True)
+    # NOTE: restored duplicate check. Confirmed necessary by direct evidence:
+    # deploying this file WITHOUT this check produced interleaved duplicate
+    # leads for two different customers (missjoory114@gmail.com and
+    # paramasivam_1775@yahoo.com) whose still-open checkouts were each
+    # triggering repeated checkouts/update webhook events over time. Every
+    # firing hit this function directly with no protection, so every firing
+    # created a fresh lead. This is NOT a race condition between threads —
+    # it's normal, expected, repeated webhook delivery for an in-progress
+    # checkout, and it requires this check regardless of whether anything
+    # else in this file runs concurrently.
+    if lead_exists_for_customer(customer_id):
+        print(f"[STEP 3] Lead already exists for customer {customer_id} — skipping duplicate creation", flush=True)
+        return {
+            "status":          "skipped",
+            "reason":          "duplicate lead — customer already has a lead",
+            "checkout_id":     checkout_id,
+            "customer_id":     customer_id,
+            "customer_action": customer_action,
+            "unmatched_skus":  unmatched_skus,
+        }
+
     lead = create_lead(customer_id, product_ids, abandoned_date)
     lead_id = lead.get("id")
     print(f"\n[DONE] customer_id={customer_id}  lead_id={lead_id}  products={len(product_ids)}  unmatched={unmatched_skus}", flush=True)
