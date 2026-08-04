@@ -43,15 +43,15 @@ def fetch_sessions(date_str):
 
     query = f"""
     {{
-      shopifyqlQuery(query: "FROM sessions SHOW landing_page_type, landing_page_path, online_store_visitors, sessions SINCE {date_str} UNTIL {date_str} GROUP BY landing_page_type, landing_page_path ORDER BY sessions DESC") {{
+        shopifyqlQuery(query: "FROM sessions SHOW landing_page_type, landing_page_path, online_store_visitors, sessions SINCE -7d UNTIL -1d GROUP BY landing_page_type, landing_page_path ORDER BY sessions DESC") {{
         tableData {{
-          columns {{ name }}
-          rows
+        columns {{ name }}
+         rows
         }}
         parseErrors
-      }}
     }}
-    """
+}}
+"""
 
     print(f"[fetch_sessions] Sending ShopifyQL request...", flush=True)
     resp = requests.post(url, json={"query": query}, headers=headers, timeout=30)
@@ -216,27 +216,27 @@ def send_session_report_to_slack(excel_bytes, date_str, row_count):
 # ── MAIN JOB (Section 5) ───────────────────────────────────────────────────────
 
 def run_session_report_job():
-    # NOTE: renamed from run_job to run_session_report_job to avoid ambiguity
-    # alongside the other background jobs defined in earlier sections.
     print(f"[run_job] ─────────────────────────────────────────", flush=True)
     print(f"[run_job] Job started at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}", flush=True)
     try:
-        yesterday = (datetime.now(IST) - timedelta(days=1)).strftime("%Y-%m-%d")
-        print(f"[run_job] Target date (yesterday): {yesterday}", flush=True)
+        seven_days_ago = (datetime.now(IST) - timedelta(days=7)).strftime("%Y-%m-%d")
+        yesterday      = (datetime.now(IST) - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_label = f"{seven_days_ago}_to_{yesterday}"
 
-        rows = fetch_sessions(yesterday)
+        print(f"[run_job] Target date range: {date_label}", flush=True)
+
+        rows = fetch_sessions(date_label)
         print(f"[run_job] Got {len(rows)} total rows from Shopify.", flush=True)
 
-        excel_bytes, count = build_excel(rows, yesterday)
+        excel_bytes, count = build_excel(rows, date_label)
         print(f"[run_job] Filtered to {count} Product rows.", flush=True)
 
-        send_session_report_to_slack(excel_bytes, yesterday, count)
+        send_session_report_to_slack(excel_bytes, date_label, count)
         print(f"[run_job] Job completed successfully.", flush=True)
 
     except Exception as e:
         print(f"[run_job] ERROR: {e}", flush=True)
     print(f"[run_job] ─────────────────────────────────────────", flush=True)
-
 
 # ── Routes (Section 5) ─────────────────────────────────────────────────────────
 
