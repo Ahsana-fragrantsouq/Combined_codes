@@ -43,6 +43,11 @@ DANABOOKS_RETRY_WAIT  = 10
 # Thread-safe counters
 _danabooks_progress_lock = threading.Lock()
 
+# ── Shopify constants (Section 6) ──────────────────────────────────────────────
+SHOPIFY_SHOP        = "fragrantsouq.myshopify.com"
+SHOPIFY_ADMIN_TOKEN = os.environ.get("SHOPIFY_ADMIN_TOKEN", "")
+SHOPIFY_API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "2024-01")
+
 
 # ── Dana Books helpers (Section 6) ─────────────────────────────────────────────
 
@@ -193,6 +198,80 @@ def danabooks_update_airtable_cost(record_id, cost):
     return resp.json()
 
 
+# ── Shopify cost update helper (Section 6) ─────────────────────────────────────
+
+def update_shopify_cost(sku, cost):
+    """
+    Find Shopify variant by SKU and update Cost per item (inventory_item cost).
+    Steps:
+      1. Search for variant by SKU using GraphQL
+      2. Get inventory_item_id from the variant
+      3. PUT the inventory item with the new cost
+    Returns True if updated, False if SKU not found in Shopify.
+    """
+    if not SHOPIFY_ADMIN_TOKEN:
+        print(f"[shopify-cost] SHOPIFY_ADMIN_TOKEN not set, skipping Shopify update for {sku}", flush=True)
+        return False
+
+    base_url = f"https://{SHOPIFY_SHOP}/admin/api/{SHOPIFY_API_VERSION}"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ADMIN_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    # Step 1: Find variant by SKU via GraphQL
+    graphql_url = f"https://{SHOPIFY_SHOP}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
+    query = """
+    {
+      productVariants(first: 5, query: "sku:%s") {
+        edges {
+          node {
+            id
+            sku
+            inventoryItem {
+              id
+            }
+          }
+        }
+      }
+    }
+    """ % sku
+
+    graphql_resp = requests.post(graphql_url, json={"query": query}, headers=headers, timeout=15)
+    graphql_resp.raise_for_status()
+    edges = graphql_resp.json().get("data", {}).get("productVariants", {}).get("edges", [])
+
+    # Find exact SKU match
+    inventory_item_gid = None
+    for edge in edges:
+        node = edge.get("node", {})
+        if node.get("sku") == sku:
+            inventory_item_gid = node.get("inventoryItem", {}).get("id")
+            break
+
+    if not inventory_item_gid:
+        print(f"[shopify-cost] SKU {sku} not found in Shopify, skipping", flush=True)
+        return False
+
+    # Extract numeric ID from GID (e.g. "gid://shopify/InventoryItem/12345" → "12345")
+    inventory_item_id = inventory_item_gid.split("/")[-1]
+
+    # Step 2: Update cost on inventory item
+    update_url = f"{base_url}/inventory_items/{inventory_item_id}.json"
+    payload = {
+        "inventory_item": {
+            "id": int(inventory_item_id),
+            "cost": str(cost)
+        }
+    }
+
+    update_resp = requests.put(update_url, json=payload, headers=headers, timeout=15)
+    update_resp.raise_for_status()
+
+    print(f"[shopify-cost] UPDATED {sku} cost → {cost} in Shopify (inventory_item_id={inventory_item_id})", flush=True)
+    return True
+
+
 # ── Core sync job (Section 6) ──────────────────────────────────────────────────
 
 def run_danabooks_auto_sync():
@@ -203,6 +282,7 @@ def run_danabooks_auto_sync():
     1. Fetch ALL SKUs from Airtable French Inventories
     2. For each batch of DANABOOKS_BATCH_SIZE SKUs, query Dana Books for latest purchase prices
     3. Only update Airtable if Cost is empty OR Dana Books price has changed
+    4. If Airtable cost updated, also update Shopify Cost per item
     """
     try:
         _run_danabooks_auto_sync_inner()
@@ -263,6 +343,7 @@ def _run_danabooks_auto_sync_inner():
                 elif current_cost is not None and current_cost == dana_price:
                     skipped_no_change += 1
                 else:
+                    # Update Airtable cost
                     danabooks_update_airtable_cost(record_id, dana_price)
                     print(
                         f"[auto-sync] UPDATED {sku} | "
@@ -270,6 +351,15 @@ def _run_danabooks_auto_sync_inner():
                         flush=True
                     )
                     updated += 1
+
+                    # Also update cost in Shopify
+                    try:
+                        shopify_updated = update_shopify_cost(sku, dana_price)
+                        if shopify_updated:
+                            print(f"[auto-sync] Shopify cost sync done for {sku}", flush=True)
+                    except Exception as shopify_err:
+                        print(f"[auto-sync] Shopify cost sync FAILED for {sku}: {type(shopify_err).__name__}: {shopify_err}", flush=True)
+
             except Exception as e:
                 print(f"[auto-sync] ERROR updating {sku}: {type(e).__name__}: {e}", flush=True)
                 errors += 1
@@ -418,3 +508,37 @@ def danabooks_health():
         for j in danabooks_scheduler.get_jobs()
     ]
     return jsonify({"status": "ok", "service": "danabooks-airtable-sync", "scheduled_jobs": jobs}), 200
+
+
+@app.route("/shopify/update-cost", methods=["POST"])
+def shopify_update_cost_endpoint():
+    """
+    Called by Airtable automation when Cost field is manually changed.
+    Body: { "sku": "DNG1024", "cost": 105.0 }
+    Triggered for manual Airtable cost changes to keep Shopify in sync.
+    """
+    body = request.get_json(force=True) or {}
+    sku = body.get("sku")
+    cost = body.get("cost")
+
+    if not sku or cost is None:
+        return jsonify({"error": "Provide 'sku' and 'cost' in request body"}), 400
+
+    try:
+        cost = float(cost)
+    except (ValueError, TypeError):
+        return jsonify({"error": "cost must be a number"}), 400
+
+    print(f"[shopify-cost] Manual trigger received for {sku} → cost={cost}", flush=True)
+
+    try:
+        updated = update_shopify_cost(sku, cost)
+        if updated:
+            print(f"[shopify-cost] Manual update successful for {sku}", flush=True)
+            return jsonify({"status": "updated", "sku": sku, "cost": cost}), 200
+        else:
+            print(f"[shopify-cost] SKU {sku} not found in Shopify", flush=True)
+            return jsonify({"status": "skipped", "reason": "SKU not found in Shopify"}), 200
+    except Exception as e:
+        print(f"[shopify-cost] ERROR for {sku}: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"error": str(e)}), 500
