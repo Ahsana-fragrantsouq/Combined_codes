@@ -510,6 +510,65 @@ def danabooks_health():
     return jsonify({"status": "ok", "service": "danabooks-airtable-sync", "scheduled_jobs": jobs}), 200
 
 
+def _run_shopify_sync_all_costs():
+    """
+    Background job: fetch all SKUs with a Cost from Airtable and
+    update Shopify Cost per item for each one.
+    """
+    print("[shopify-sync-all] Starting full Airtable → Shopify cost sync...", flush=True)
+
+    try:
+        all_skus = danabooks_get_all_airtable_skus()
+    except Exception as e:
+        print(f"[shopify-sync-all] ERROR fetching Airtable SKUs: {e}", flush=True)
+        return
+
+    # Filter only SKUs that have a cost value
+    skus_with_cost = [item for item in all_skus if item["current_cost"] is not None]
+    total = len(skus_with_cost)
+    print(f"[shopify-sync-all] Total SKUs with cost to sync: {total}", flush=True)
+
+    updated = 0
+    skipped = 0
+    errors = 0
+
+    for idx, item in enumerate(skus_with_cost, start=1):
+        sku = item["sku"]
+        cost = item["current_cost"]
+
+        try:
+            shopify_updated = update_shopify_cost(sku, cost)
+            if shopify_updated:
+                updated += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            print(f"[shopify-sync-all] ERROR {sku}: {type(e).__name__}: {e}", flush=True)
+            errors += 1
+
+        if idx % 100 == 0 or idx == total:
+            print(f"[shopify-sync-all] Progress: {idx}/{total} | Updated={updated} Skipped={skipped} Errors={errors}", flush=True)
+
+        # Small delay to avoid Shopify rate limiting
+        time.sleep(0.5)
+
+    print(
+        f"[shopify-sync-all] Done. Updated={updated} | "
+        f"Not in Shopify={skipped} | Errors={errors}",
+        flush=True
+    )
+
+
+@app.route("/shopify/sync-all-costs", methods=["POST"])
+def shopify_sync_all_costs():
+    """
+    Trigger a full sync of all Airtable costs → Shopify Cost per item.
+    Runs in background. No body required.
+    """
+    threading.Thread(target=_run_shopify_sync_all_costs, daemon=True).start()
+    return jsonify({"message": "Full Airtable → Shopify cost sync started in background"}), 200
+
+
 @app.route("/shopify/update-cost", methods=["POST"])
 def shopify_update_cost_endpoint():
     """
