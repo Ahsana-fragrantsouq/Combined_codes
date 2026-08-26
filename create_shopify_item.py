@@ -153,7 +153,7 @@ class ImageSearcher:
             # 1. Remove special characters (&, -, ', etc.)
             # 2. Replace multiple spaces with single space
             # 3. Replace spaces with underscores
-            """
+            r"""
             import re
             import unicodedata
 
