@@ -72,15 +72,21 @@ def lookup_customer_number(channel: str, thread_ts: str):
     resp.raise_for_status()
     data = resp.json()
     if not data.get("ok") or not data.get("messages"):
-        print(f"conversations.replies failed: {data}")
+        print(f"[slack_reply] conversations.replies failed: {data}")
         return None
 
     parent_text = data["messages"][0].get("text", "")
+    print(f"[slack_reply] parent message text: {parent_text!r}")
     match = CUSTOMER_NUMBER_PATTERN.search(parent_text)
+    if match:
+        print(f"[slack_reply] extracted customer number: {match.group(1)}")
+    else:
+        print(f"[slack_reply] regex did not match parent text")
     return match.group(1) if match else None
 
 
 def send_whatsapp_text(recipient_number: str, text: str):
+    print(f"[slack_reply] sending to MSG91: recipient={recipient_number} text={text!r}")
     url = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/"
     headers = {
         "Authkey": MSG91_AUTHKEY,
@@ -94,6 +100,7 @@ def send_whatsapp_text(recipient_number: str, text: str):
         "text": text,
     }
     resp = requests.post(url, headers=headers, json=body, timeout=10)
+    print(f"[slack_reply] MSG91 response status={resp.status_code} body={resp.text}")
     resp.raise_for_status()
     return resp.json()
 
@@ -101,21 +108,27 @@ def send_whatsapp_text(recipient_number: str, text: str):
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     if not verify_slack_signature(request):
+        print("[slack_reply] signature verification FAILED")
         return "invalid signature", 403
 
     payload = request.get_json(silent=True) or {}
 
     # One-time handshake Slack sends when you first save the Request URL
     if payload.get("type") == "url_verification":
+        print("[slack_reply] handling url_verification challenge")
         return jsonify({"challenge": payload.get("challenge")})
 
     event_id = payload.get("event_id")
     if event_id:
         if event_id in _seen_event_ids:
+            print(f"[slack_reply] duplicate event_id={event_id}, skipping")
             return jsonify({"ok": True}), 200
         _seen_event_ids.add(event_id)
 
     event = payload.get("event", {})
+    print(f"[slack_reply] received event: type={event.get('type')} subtype={event.get('subtype')} "
+          f"thread_ts={event.get('thread_ts')} ts={event.get('ts')} bot_id={event.get('bot_id')} "
+          f"text={event.get('text')!r}")
 
     is_thread_reply = (
         event.get("type") == "message"
@@ -124,6 +137,7 @@ def slack_events():
         and not event.get("bot_id")       # ignore Airtable's own bot message
         and event.get("subtype") is None  # ignore edits/deletes/channel-joins
     )
+    print(f"[slack_reply] is_thread_reply={is_thread_reply}")
 
     if is_thread_reply:
         channel = event.get("channel", "")
@@ -134,9 +148,10 @@ def slack_events():
         if customer_number and reply_text:
             try:
                 send_whatsapp_text(customer_number, reply_text)
+                print(f"[slack_reply] SUCCESS: forwarded reply to {customer_number}")
             except requests.RequestException as e:
-                print(f"MSG91 send failed: {e}")
+                print(f"[slack_reply] MSG91 send failed: {e}")
         elif not customer_number:
-            print(f"Could not extract customer number from thread_ts={thread_ts}")
+            print(f"[slack_reply] Could not extract customer number from thread_ts={thread_ts}")
 
     return jsonify({"ok": True}), 200
