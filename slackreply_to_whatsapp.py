@@ -41,6 +41,10 @@ MSG91_INTEGRATED_NUMBER = os.environ["MSG91_INTEGRATED_NUMBER"]
 # Matches "Message received from 971524633389 ," in the notification text
 CUSTOMER_NUMBER_PATTERN = re.compile(r"Message received from (\+?\d{8,15})\s*,")
 
+# Only replies starting with this exact prefix get forwarded to WhatsApp.
+# Everything else typed in the thread is treated as internal team chat.
+TRIGGER_PREFIX = "/sendcustomer"
+
 # in-memory dedupe: Slack redelivers events on timeout, this avoids
 # double-sending the same reply. Resets on redeploy - fine for this scale.
 _seen_event_ids = set()
@@ -142,7 +146,14 @@ def slack_events():
     if is_thread_reply:
         channel = event.get("channel", "")
         thread_ts = event["thread_ts"]
-        reply_text = event.get("text", "")
+        raw_text = event.get("text", "")
+
+        if not raw_text.strip().lower().startswith(TRIGGER_PREFIX):
+            print(f"[slack_reply] no '{TRIGGER_PREFIX}' prefix, ignoring: {raw_text!r}")
+            return jsonify({"ok": True}), 200
+
+        reply_text = raw_text.strip()[len(TRIGGER_PREFIX):].strip()
+        print(f"[slack_reply] trigger matched, forwarding text={reply_text!r}")
 
         customer_number = lookup_customer_number(channel, thread_ts)
         if customer_number and reply_text:
@@ -153,5 +164,7 @@ def slack_events():
                 print(f"[slack_reply] MSG91 send failed: {e}")
         elif not customer_number:
             print(f"[slack_reply] Could not extract customer number from thread_ts={thread_ts}")
+        elif not reply_text:
+            print(f"[slack_reply] '{TRIGGER_PREFIX}' used with no message after it, ignoring")
 
     return jsonify({"ok": True}), 200
