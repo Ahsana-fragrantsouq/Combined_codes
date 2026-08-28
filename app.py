@@ -19,6 +19,7 @@ import shopify_sync
 import syncing_my_price
 import create_shopify_from_airtable 
 import slack_reply
+import slackreply_to_whatsapp
 
 # ════════════════════════════════════════════════════════════════════════════════════
 # RUN
