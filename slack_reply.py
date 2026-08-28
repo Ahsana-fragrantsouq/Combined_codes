@@ -331,7 +331,7 @@ def process_order_status(order, event_id=None, prebuilt_index=None):
 
 # --------------------------------------------------
 @app.route("/webhook/shopify", methods=["POST"])
-def shopify_webhook():
+def slack_reply_shopify_webhook():
     print("🔔 Webhook received")
 
     raw_data = request.get_data()
@@ -448,7 +448,7 @@ def run_sync(days):
 # NOTE: renamed from /sync-all to /slack-reply/sync-all to avoid conflict with
 # amazon_sync.py's existing /sync-all route.
 @app.route("/slack-reply/sync-all", methods=["GET", "POST"])
-def sync_all():
+def slack_reply_sync_all():
     days = int(request.args.get("days", 2))
 
     with sync_lock:
@@ -470,7 +470,7 @@ def sync_all():
 
 # Usage: GET /sync-status -> poll this to see if the sync is done and view results
 @app.route("/sync-status")
-def sync_status():
+def slack_reply_sync_status():
     with sync_lock:
         return jsonify(dict(sync_state)), 200
 
