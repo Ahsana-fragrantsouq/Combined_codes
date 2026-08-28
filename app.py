@@ -18,6 +18,7 @@ import danabooks_airtable
 import shopify_sync
 import syncing_my_price
 import create_shopify_from_airtable 
+import slack_reply
 
 # ════════════════════════════════════════════════════════════════════════════════════
 # RUN
