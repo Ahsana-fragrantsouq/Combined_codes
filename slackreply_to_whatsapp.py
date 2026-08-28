@@ -38,8 +38,8 @@ SLACK_BOT_TOKEN = os.environ["SLACK_REPLY_BOT_TOKEN"]
 MSG91_AUTHKEY = os.environ["MSG91_AUTHKEY"]
 MSG91_INTEGRATED_NUMBER = os.environ["MSG91_INTEGRATED_NUMBER"]
 
-# Matches "Message received from 971524633389 in MSG" in the notification text
-CUSTOMER_NUMBER_PATTERN = re.compile(r"Message received from (\+?\d{8,15}) in MSG")
+# Matches "Message received from 971524633389 ," in the notification text
+CUSTOMER_NUMBER_PATTERN = re.compile(r"Message received from (\+?\d{8,15})\s*,")
 
 # in-memory dedupe: Slack redelivers events on timeout, this avoids
 # double-sending the same reply. Resets on redeploy - fine for this scale.
