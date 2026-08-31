@@ -43,7 +43,10 @@ CUSTOMER_NUMBER_PATTERN = re.compile(r"Message received from (\+?\d{8,15})\s*,")
 
 # Only replies starting with this exact prefix get forwarded to WhatsApp.
 # Everything else typed in the thread is treated as internal team chat.
-TRIGGER_PREFIX = "/sendcustomer"
+# NOTE: deliberately not slash-prefixed (e.g. "/sendcustomer") - Slack's
+# client blocks sending any message that starts with "/" unless it's a
+# registered Slash Command, so a colon-based prefix is used instead.
+TRIGGER_PREFIX = "sendcustomer:"
 
 # in-memory dedupe: Slack redelivers events on timeout, this avoids
 # double-sending the same reply. Resets on redeploy - fine for this scale.
