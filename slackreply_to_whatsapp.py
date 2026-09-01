@@ -48,6 +48,15 @@ CUSTOMER_NUMBER_PATTERN = re.compile(r"Message received from (\+?\d{8,15})\s*,")
 # registered Slash Command, so a colon-based prefix is used instead.
 TRIGGER_PREFIX = "sendcustomer:"
 
+# Short keywords that auto-expand into a full pre-saved message.
+# Typing "sendcustomer: hi" sends the full greeting below, not the word "hi".
+# Match is case-insensitive and ignores extra whitespace. Add more here as needed.
+CANNED_RESPONSES = {
+    "hi": "Hello, thank you for contacting fragrantsouq.com. How can I help you?",
+    "thanks": "Thanks for ordering! We appreciate your business.",
+    "delay": "Sorry for the delay - your order is being prepared and will ship shortly.",
+}
+
 # in-memory dedupe: Slack redelivers events on timeout, this avoids
 # double-sending the same reply. Resets on redeploy - fine for this scale.
 _seen_event_ids = set()
@@ -156,6 +165,12 @@ def slack_events():
             return jsonify({"ok": True}), 200
 
         reply_text = raw_text.strip()[len(TRIGGER_PREFIX):].strip()
+
+        canned = CANNED_RESPONSES.get(reply_text.lower())
+        if canned:
+            print(f"[slack_reply] '{reply_text}' matched canned response, expanding")
+            reply_text = canned
+
         print(f"[slack_reply] trigger matched, forwarding text={reply_text!r}")
 
         customer_number = lookup_customer_number(channel, thread_ts)

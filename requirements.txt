@@ -8,7 +8,6 @@ openpyxl
 APScheduler
 pytz
 airtable-python-wrapper
-shopifyapi>=12.3.0
+ShopifyAPI
 openai
 tenacity
- 
