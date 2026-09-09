@@ -21,6 +21,7 @@ import create_shopify_from_airtable
 import slack_reply
 import slackreply_to_whatsapp
 import order_whatsapp
+import shopify_order_proxy
 
 # ════════════════════════════════════════════════════════════════════════════════════
 # RUN
