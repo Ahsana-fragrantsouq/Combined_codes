@@ -20,7 +20,10 @@ from abandoned_cart import AIRTABLE_BASE_ID
 # redeclaring it. Reuses AIRTABLE_TOKEN as a fallback if AIRTABLE_API_KEY
 # isn't set separately for this service.
 
-DANABOOKS_URL        = "https://transactionhub.zerobook.shop/api/v1/transaction-history"
+DANABOOKS_URL        = "https://transactionhub.danabooks.com/api/v1/transaction-history"
+# NOTE: domain changed from transactionhub.zerobook.shop to
+# transactionhub.danabooks.com per Dana Books support, along with a fresh
+# API token, after the old token started returning "Invalid or expired token".
 DANABOOKS_TOKEN      = os.environ.get("DANABOOKS_TOKEN", "")
 DANABOOKS_IDENTIFIER = os.environ.get("DANABOOKS_IDENTIFIER", "thirdparty@danabooks.com")
 
