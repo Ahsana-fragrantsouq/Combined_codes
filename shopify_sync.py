@@ -275,6 +275,7 @@ def shopint_create_order_record(order, customer_id):
 
     fields = {
         "Order ID":        order_id,
+        "Shopify order id": "#" + order_number,
         "Customer":        [customer_id],
         "Order Date":      order_date,
         "Sales Channel":   "Shopify",
