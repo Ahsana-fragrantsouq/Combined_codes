@@ -7,6 +7,14 @@ merged version; only the file location and these import lines changed.
 NOTE: the requested filename was "syncing-my-price.py" but Python module names
 cannot contain hyphens (import syncing-my-price is invalid syntax), so this is
 named syncing_my_price.py instead. Route paths and behavior are unchanged.
+
+UPDATE (Kuwait / Qatar catalogs):
+  Added Kuwait and Qatar catalog price sync. All additions are marked with
+  "# NEW (Kuwait/Qatar)". Nothing else was changed.
+  - Kuwait catalog price list currency = AED  → Airtable "Kuwait Price" (AED) sent as-is
+  - Qatar  catalog price list currency = QAR  → Airtable "Qatar Price"  (QAR) sent as-is
+  No currency conversion is done — Airtable values must already be in the
+  catalog's currency.
 """
 import os
 import time
@@ -132,10 +140,14 @@ def _to_number(x):
         return None
 
 # ---------- MARKET (Section 8) ----------
+# Maps our internal market key → Shopify CATALOG TITLE (matched against catalog title)
 MARKET_NAMES = {
     "UAE": "United Arab Emirates",
     "Asia": "Asia Market with 55 rate",
     "America": "America catlog",
+    # NEW (Kuwait/Qatar): exact catalog titles from Shopify → Markets → Catalogs
+    "Kuwait": "Kuwait",   # price list currency: AED
+    "Qatar": "Qatar",     # price list currency: QAR
 }
 
 # ---------- GRAPHQL (Section 8) ----------
@@ -345,13 +357,24 @@ def airtable_webhook():
         "UAE": _to_number(data.get("UAE price")),
         "Asia": _to_number(data.get("Asia Price")),
         "America": _to_number(data.get("America Price")),
+        # NEW (Kuwait/Qatar): read from Airtable payload — sent as-is, no conversion
+        "Kuwait": _to_number(data.get("Kuwait Price")),   # AED (matches Kuwait catalog currency)
+        "Qatar": _to_number(data.get("Qatar Price")),     # QAR (matches Qatar catalog currency)
     }
 
     compare_prices = {
         "UAE": _to_number(data.get("UAE Comparison Price")),
         "Asia": _to_number(data.get("Asia Comparison Price")),
         "America": _to_number(data.get("America Comparison Price")),
+        # NEW (Kuwait/Qatar): optional — stays None (compare-at not sent) unless
+        # these keys are added to the Airtable script later
+        "Kuwait": _to_number(data.get("Kuwait Comparison Price")),
+        "Qatar": _to_number(data.get("Qatar Comparison Price")),
     }
+
+    # NEW (Kuwait/Qatar): log the parsed values so you can confirm they arrived
+    print("🇰🇼 Kuwait price:", prices["Kuwait"], "| compare:", compare_prices["Kuwait"], flush=True)
+    print("🇶🇦 Qatar price:", prices["Qatar"], "| compare:", compare_prices["Qatar"], flush=True)
 
     qty = _to_number(data.get("Qty given in shopify"))
 
@@ -398,7 +421,16 @@ def airtable_webhook():
 
         pl = price_lists.get(MARKET_NAMES.get(market))
         if not pl:
+            # NEW (Kuwait/Qatar): log when Kuwait/Qatar catalog isn't found
+            # (catalog inactive, has no price list, or title doesn't match MARKET_NAMES)
+            if market in ("Kuwait", "Qatar"):
+                print(f"⚠️ {market}: catalog '{MARKET_NAMES.get(market)}' not found in price lists — skipped", flush=True)
             continue
+
+        # NEW (Kuwait/Qatar): log the price list update for Kuwait/Qatar
+        if market in ("Kuwait", "Qatar"):
+            print(f"💲 {market}: updating catalog price list → {price} {pl['currency']} "
+                  f"(compare: {compare_prices.get(market)})", flush=True)
 
         update_price_list(pl["id"], variant_gid, price, pl["currency"], compare_prices.get(market))
 
