@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 from airtable import Airtable
 import shopify
 from typing import List, Dict, Optional
-from shopify_utils import _to_number, shopify_graphql  # 🆕 for price updates
+from shopify_utils import _to_number
 
 import unicodedata
 import re
@@ -65,12 +65,20 @@ create_shopify_bp = Blueprint("create_shopify_bp", __name__)
 # ---------------------------
 # CONFIGURATION
 # ---------------------------
-SHOP = os.environ.get("SHOPIFY_SHOP")
-TOKEN = os.environ.get("SHOPIFY_API_TOKEN")
+# SHOPIFY_SHOP / SHOPIFY_API_TOKEN are shared with shopify_utils.py and the
+# order proxy in combined codes, and may hold a different token. The
+# CREATE_SHOPIFY_* overrides let product creation keep the old
+# Create-Shopify-item service's token without touching those.
+SHOP = os.environ.get("CREATE_SHOPIFY_SHOPIFY_SHOP") or os.environ.get("SHOPIFY_SHOP")
+TOKEN = os.environ.get("CREATE_SHOPIFY_SHOPIFY_API_TOKEN") or os.environ.get("SHOPIFY_API_TOKEN")
 API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2025-01")
 
-AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
-AIRTABLE_API_KEY = os.environ.get("AIRTABLE_API_KEY")
+# AIRTABLE_BASE_ID / AIRTABLE_API_KEY are shared with other modules in
+# combined codes (abandoned_cart, amazon_sync, danabooks_airtable) and may
+# hold different values. CREATE_SHOPIFY_* overrides let this module use
+# the old Create-Shopify-item service's values without touching those.
+AIRTABLE_BASE_ID = os.environ.get("CREATE_SHOPIFY_AIRTABLE_BASE_ID") or os.environ.get("AIRTABLE_BASE_ID")
+AIRTABLE_API_KEY = os.environ.get("CREATE_SHOPIFY_AIRTABLE_API_KEY") or os.environ.get("AIRTABLE_API_KEY")
 AIRTABLE_TABLE_NAME = "French Inventories"
 
 # Initialize Airtable only if credentials exist
@@ -250,6 +258,21 @@ def _rest_url(path: str):
 
 def _graphql_url():
     return f"https://{SHOP}/admin/api/{API_VERSION}/graphql.json"
+
+
+def shopify_graphql(query, variables=None):
+    """Same as shopify_utils.shopify_graphql, but uses this module's
+    SHOP/TOKEN so regional price updates use the same token that created
+    the product."""
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    print(f"[GQL] POST {_graphql_url()} Vars: {variables}", flush=True)
+    resp = requests.post(_graphql_url(), headers=_json_headers(), json=payload)
+    print("[GQL] Status:", resp.status_code, flush=True)
+    print("[GQL] Body:", resp.text, flush=True)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def get_linked_image_urls_from_name_field(linked_record_ids, linked_table_name="Image URLs"):
