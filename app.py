@@ -22,6 +22,7 @@ import slack_reply
 import slackreply_to_whatsapp
 import order_whatsapp
 import shopify_order_proxy
+import gp_report
 
 # ════════════════════════════════════════════════════════════════════════════════════
 # RUN
