@@ -143,7 +143,7 @@ def _to_number(x):
 # Maps our internal market key → Shopify CATALOG TITLE (matched against catalog title)
 MARKET_NAMES = {
     "UAE": "United Arab Emirates",
-    "Asia": "Asia Market with 55 rate",
+    "Asia": "Asia Price",
     "America": "America catlog",
     # NEW (Kuwait/Qatar): exact catalog titles from Shopify → Markets → Catalogs
     "Kuwait": "Kuwait",   # price list currency: AED
