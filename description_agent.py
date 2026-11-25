@@ -98,7 +98,7 @@ def process_notes_input(notes_input: Any) -> List[str]:
 #        The Experience -> "1 paragraph, 3-4 sentences"
 #        Perfect For    -> "1 paragraph, 2-3 sentences"
 #      Keep these matching the total word count in line 1.
-#   4. max_tokens=900 in BOTH safe_openai_call(...) calls further down
+#   4. max_tokens=900 in the safe_openai_call(...) call further down
 #      (search for "LENGTH SETTING").
 #
 # Tested presets:
@@ -106,8 +106,7 @@ def process_notes_input(notes_input: Any) -> List[str]:
 #   300-400 words -> 2 paragraphs for Intro and Experience,
 #                    3-5 sentences each,                   max_tokens=1500
 #
-# Cost: longer text = more output tokens = higher cost (on both calls,
-# because the validator writes the whole description back).
+# Cost: longer text = more output tokens = higher cost.
 # max_tokens is only a ceiling; you pay for what is actually written.
 # ==================================================================
 CREATOR_SYSTEM_PROMPT = """
@@ -147,25 +146,6 @@ IF (and only if) at least one note exists in notes.top / notes.heart / notes.bas
 
 6) Final line MUST be:
 <p>Discover more from <a href="/collections/{brand_slug}">{brand_name} perfumes</a></p>
-"""
-
-VALIDATOR_SYSTEM_PROMPT = """
-You are a strict formatter. Return ONLY JSON.
-
-You must:
-- Ensure the final HTML follows the required structure
-- Ensure the final HTML contains EVERY provided note (case-insensitive match is fine)
-- Ensure the final internal link is exactly the required one and is the last line
-- Remove any disallowed tags or any mention of missing notes
-- Do NOT shorten, summarize or remove any sentences. Keep the full length and all wording,
-  only fix formatting problems.
-
-Return JSON:
-{
-  "overall_pass": boolean,
-  "failures": ["..."],
-  "corrected": {"content_html": "..."}
-}
 """
 
 # ============================================================
@@ -413,26 +393,10 @@ def generate_description_from_three_note_strings(
             print("--- Creator HTML (raw) ---")
             print(creator_html[:800])
 
-        # Step 2: Validate / correct via LLM
-        validator_response = safe_openai_call(
-            model=model,
-            messages=[
-                {"role": "system", "content": VALIDATOR_SYSTEM_PROMPT},
-                {"role": "user",   "content": json.dumps(
-                    {"facts": facts, "original_html": creator_html},
-                    ensure_ascii=False, indent=2
-                )},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=900,  # LENGTH SETTING: 900 for 100-200 words, 1500 for 300-400 words
-        )
-
-        validator_data = json.loads(validator_response.choices[0].message.content or "{}")
-        final_html = (validator_data.get("corrected") or {}).get("content_html") or creator_html
-
-        if debug and validator_data.get("failures"):
-            print("Validator failures:", validator_data["failures"])
+        # Step 2 (validator AI call) REMOVED to save cost.
+        # The HARD ENFORCEMENT steps below already fix tags, h2, notes and link for free.
+        # Strip ```html code fences the model sometimes adds (the validator used to remove these).
+        final_html = re.sub(r"^\s*```(?:html)?\s*|\s*```\s*$", "", creator_html, flags=re.IGNORECASE)
 
     except Exception as e:
         if debug:
