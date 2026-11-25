@@ -117,8 +117,8 @@ Return ONLY valid HTML (no markdown, no explanations).
 ALLOWED TAGS ONLY: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <a>
 No other tags. No inline styles. No emojis.
 
-LENGTH: The full description MUST be 100-200 words. Write rich, sensory, specific copy.
-Every paragraph must have 2-4 full sentences. No generic filler.
+LENGTH: The full description MUST be 200-300 words. Write rich, sensory, specific copy.
+Every paragraph must have 3-5 full sentences. No generic filler.
 
 CRITICAL:
 - The <h2> MUST match the provided perfume_name EXACTLY.
@@ -127,10 +127,10 @@ CRITICAL:
 
 MUST FOLLOW THIS STRUCTURE:
 1) <h2>{perfume_name}</h2>
-2) <p>Intro (1 paragraph, 2-3 sentences: the character, mood and fragrance family;
+2) <p>Intro (1 paragraph, 3-4 sentences: the character, mood and fragrance family;
    mention perfume_name and brand_name naturally)</p>
 3) <h3>The Experience</h3>
-   <p>1 paragraph, 3-4 sentences: how the scent opens, develops on skin and dries down.
+   <p>1 paragraph, 4-5 sentences: how the scent opens, develops on skin and dries down.
    If notes exist, mention how they feel and smell.</p>
 
 IF (and only if) at least one note exists in notes.top / notes.heart / notes.base:
@@ -142,7 +142,7 @@ IF (and only if) at least one note exists in notes.top / notes.heart / notes.bas
    </ul>
 
 5) <h3>Perfect For</h3>
-   <p>1 paragraph, 2-3 sentences: occasions, season, time of day, and who will love it</p>
+   <p>1 paragraph, 3-4 sentences: occasions, season, time of day, and who will love it</p>
 
 6) Final line MUST be:
 <p>Discover more from <a href="/collections/{brand_slug}">{brand_name} perfumes</a></p>
@@ -385,7 +385,7 @@ def generate_description_from_three_note_strings(
                 {"role": "user",   "content": json.dumps(facts, ensure_ascii=False, indent=2)},
             ],
             temperature=0.3,
-            max_tokens=900,  # LENGTH SETTING: 900 for 100-200 words, 1500 for 300-400 words
+            max_tokens=1200,  # LENGTH SETTING: 900 for 100-200 words, 1500 for 300-400 words,1200 for 200-300 words
         )
         creator_html = creator_response.choices[0].message.content or ""
 
