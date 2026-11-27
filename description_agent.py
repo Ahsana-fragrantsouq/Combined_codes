@@ -404,8 +404,7 @@ def generate_description_from_three_note_strings(
     except Exception as e:
         # 2026-11-27: the real OpenAI error was hidden (printed only when debug=True) -> the website saved the
         # short fallback text without anyone knowing why. Now ALWAYS printed in the Render log and sent back
-        # in the reply as "ai_error" (LAST_AI_ERROR). The fallback text itself is unchanged.
-        global LAST_AI_ERROR
+        # in the reply as "ai_error" (LAST_AI_ERROR, declared global at the top of this function). Fallback unchanged.
         real = e.last_attempt.exception() if hasattr(e, "last_attempt") else e    # tenacity RetryError -> real error
         LAST_AI_ERROR = f"{type(real).__name__}: {real}"[:500]
         print(f"[DESC-AI] OpenAI call FAILED for '{perfume_name}' -> fallback text used. Reason: {LAST_AI_ERROR}",
