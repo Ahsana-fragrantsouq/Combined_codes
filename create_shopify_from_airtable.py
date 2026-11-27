@@ -86,7 +86,8 @@ def generate_description():
                 "perfume_name": perfume_name,
                 "brand_name": brand_name,
                 "length": result.get("length"),
-                "model_used": result.get("model_used")
+                "model_used": result.get("model_used"),
+                "ai_error": result.get("ai_error"),   # 2026-11-27: why the short fallback text was used (None = AI worked)
             }
         })
     else:

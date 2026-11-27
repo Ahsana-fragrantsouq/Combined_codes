@@ -6,6 +6,7 @@ from openai import OpenAI, APIError, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 client = OpenAI()
+LAST_AI_ERROR = None      # why the last OpenAI call failed (None = it worked) - see the except in the generator
 
 CONFIG = {
     "default_model": "gpt-4o-mini",
@@ -376,6 +377,8 @@ def generate_description_from_three_note_strings(
         "output_rule":  "Return ONLY HTML using allowed tags. No markdown. No explanations.",
     }
 
+    global LAST_AI_ERROR
+    LAST_AI_ERROR = None
     try:
         # Step 1: Create
         creator_response = safe_openai_call(
@@ -399,8 +402,14 @@ def generate_description_from_three_note_strings(
         final_html = re.sub(r"^\s*```(?:html)?\s*|\s*```\s*$", "", creator_html, flags=re.IGNORECASE)
 
     except Exception as e:
-        if debug:
-            print("Generation error:", str(e))
+        # 2026-11-27: the real OpenAI error was hidden (printed only when debug=True) -> the website saved the
+        # short fallback text without anyone knowing why. Now ALWAYS printed in the Render log and sent back
+        # in the reply as "ai_error" (LAST_AI_ERROR). The fallback text itself is unchanged.
+        global LAST_AI_ERROR
+        real = e.last_attempt.exception() if hasattr(e, "last_attempt") else e    # tenacity RetryError -> real error
+        LAST_AI_ERROR = f"{type(real).__name__}: {real}"[:500]
+        print(f"[DESC-AI] OpenAI call FAILED for '{perfume_name}' -> fallback text used. Reason: {LAST_AI_ERROR}",
+              flush=True)
 
         # Minimal safe fallback
         final_html = (
@@ -476,6 +485,7 @@ def generate_description_for_api(
             "brand_name":   (brand_name or "Fragrances"),
             "length":       len(description_html),
             "model_used":   model,
+            "ai_error":     LAST_AI_ERROR,      # None = written by the AI; text = fallback used, this is why
         }
     except Exception as e:
         return {
